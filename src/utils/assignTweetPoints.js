@@ -145,7 +145,7 @@ async function assignTweetPointsCron(client) {
       // Add user details to embed
       embed.addFields({
         name: discordUsername || participant.twitterUsername,
-        value: `${details.join("\n")}\n**Total:** ${earnedPoints} pts`,
+        value: `${details.join("\n\n")}\n**Total:** ${earnedPoints} pts`,
       });
     }
 
