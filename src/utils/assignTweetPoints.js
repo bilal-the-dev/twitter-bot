@@ -7,6 +7,7 @@ const {
   getAllReplies,
   getAllQuotes,
 } = require("./twitterApi");
+const { EmbedBuilder } = require("discord.js");
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
