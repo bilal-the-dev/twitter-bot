@@ -50,8 +50,6 @@ module.exports = {
       type: ApplicationCommandOptionType.Subcommand,
     },
   ],
-  permissionsRequired: [PermissionFlagsBits.Administrator],
-  botPermissions: [PermissionFlagsBits.SendMessages],
 
   callback: async (client, interaction) => {
     const subcommand = interaction.options.getSubcommand();
