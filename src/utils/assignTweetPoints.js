@@ -22,7 +22,7 @@ async function assignTweetPointsCron(client) {
   console.log("[CRON] Running tweet points assignment...");
 
   const now = new Date();
-  const channelId = process.env.TWEET_POINTS_CHANNEL_ID; // get from env
+  const channelId = process.env.TWEET_POINTS_CHANNEL_ID;
   const channel = await client.channels.fetch(channelId);
 
   const tweets = await Tweet.find({
@@ -40,21 +40,21 @@ async function assignTweetPointsCron(client) {
     try {
       retweeters = await getAllRetweeters(tweet.tweetId);
     } catch (e) {
-      console.error(e);
+      console.error("Retweet fetch failed:", e);
     }
 
     try {
       await sleep(randomDelay());
       repliers = await getAllReplies(tweet.tweetId);
     } catch (e) {
-      console.error(e);
+      console.error("Reply fetch failed:", e);
     }
 
     try {
       await sleep(randomDelay());
       quoters = await getAllQuotes(tweet.tweetId);
     } catch (e) {
-      console.error("[CRON] Quote fetch failed:", e.message);
+      console.error("Quote fetch failed:", e);
     }
 
     const participants = await TweetParticipation.find({
@@ -65,38 +65,30 @@ async function assignTweetPointsCron(client) {
 
     if (participants.length === 0) continue;
 
-    const embed = new EmbedBuilder()
-      .setTitle(`Tweet Points Summary`)
-      .setDescription(
-        `Results for tweet: [View Tweet](https://twitter.com/i/status/${tweet.tweetId})`
-      )
-      .setColor(0x00ff00)
-      .setTimestamp();
-
     for (const participant of participants) {
       let earnedPoints = 0;
-      let details = [];
+      const actionLines = [];
 
       // 👍 LIKE (always)
       earnedPoints += pointsConfig.LIKE;
-      details.push(`👍 Like: ${pointsConfig.LIKE} pts`);
+      actionLines.push(`👍 Like      +${pointsConfig.LIKE}`);
 
       // 🔁 RETWEET
       if (retweeters.has(participant.twitterUsername)) {
         earnedPoints += pointsConfig.RETWEET;
-        details.push(`🔁 Retweet: ${pointsConfig.RETWEET} pts`);
+        actionLines.push(`🔁 Retweet   +${pointsConfig.RETWEET}`);
       }
 
       // 💬 REPLY
       if (repliers.has(participant.twitterUsername)) {
         earnedPoints += pointsConfig.REPLY;
-        details.push(`💬 Reply: ${pointsConfig.REPLY} pts`);
+        actionLines.push(`💬 Reply     +${pointsConfig.REPLY}`);
       }
 
       // 🧵 QUOTE
       if (quoters.has(participant.twitterUsername)) {
         earnedPoints += pointsConfig.QUOTE;
-        details.push(`🧵 Quote: ${pointsConfig.QUOTE} pts`);
+        actionLines.push(`🧵 Quote     +${pointsConfig.QUOTE}`);
       }
 
       if (earnedPoints === 0) continue;
@@ -113,9 +105,7 @@ async function assignTweetPointsCron(client) {
             discordId: participant.discordId,
             twitterUsername: participant.twitterUsername,
           },
-          $inc: {
-            totalPoints: earnedPoints,
-          },
+          $inc: { totalPoints: earnedPoints },
           $set: {
             username: discordUsername ?? null,
             lastUpdatedAt: new Date(),
@@ -142,22 +132,31 @@ async function assignTweetPointsCron(client) {
       participant.pointsAssigned = true;
       await participant.save();
 
-      // Add user details to embed
-      embed.addFields({
-        name: discordUsername || participant.twitterUsername,
-        value: `${details.join("\n\n")}\n**Total:** ${earnedPoints} pts`,
-      });
+      // ===== CLEAN PER-USER EMBED =====
+      const embed = new EmbedBuilder()
+        .setColor(0x1da1f2) // Twitter blue
+        .setTitle("🏆 Tweet Points Earned")
+        .setDescription(
+          `**Tweet**\n` +
+            `\`https://twitter.com/i/status/${tweet.tweetId}\`\n\n` +
+            `**User**\n` +
+            `\`${discordUsername || participant.twitterUsername}\`\n\n` +
+            `**Actions**\n` +
+            `\`\`\`\n${actionLines.join("\n")}\n\`\`\`\n` +
+            `**Total**\n` +
+            `\`${earnedPoints} points\``
+        )
+        .setTimestamp();
+
+      if (channel) {
+        await channel.send({ embeds: [embed] });
+      }
     }
 
-    // Mark tweet as completed
+    // Mark tweet done
     tweet.pointsAssigned = true;
     tweet.status = "completed";
     await tweet.save();
-
-    // Send embed to Discord
-    if (channel) {
-      await channel.send({ embeds: [embed] });
-    }
   }
 
   console.log("[CRON] Tweet points assignment completed.");
