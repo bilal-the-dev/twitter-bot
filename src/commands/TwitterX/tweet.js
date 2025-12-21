@@ -68,7 +68,7 @@ module.exports = {
       //   const expiresAt = new Date(sentAt.getTime() + 24 * 60 * 60 * 1000); // 24h
 
       const sentAt = new Date();
-      const expiresAt = new Date(sentAt.getTime() + 1 * 60 * 1000); // 3 minutes
+      const expiresAt = new Date(sentAt.getTime() + 3 * 60 * 1000); // 3 minutes
 
       // Create tweet record
       const tweet = await Tweet.create({
