@@ -6,7 +6,7 @@ module.exports = async (client) => {
   try {
     await mongoose.connect(process.env.MONGO_URI);
 
-    cron.schedule("*/4 * * * *", async () => {
+    cron.schedule("*/15 * * * *", async () => {
       try {
         await assignTweetPointsCron(client);
       } catch (err) {
