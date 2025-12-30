@@ -12,9 +12,9 @@ module.exports = {
   options: [
     {
       name: "project_name",
-      description: "Optional: specify a project, defaults to current running",
+      description: "Specify the project name",
       type: ApplicationCommandOptionType.String,
-      required: false,
+      required: true, // now required
     },
   ],
   permissionsRequired: [],
@@ -23,21 +23,12 @@ module.exports = {
   callback: async (client, interaction) => {
     await interaction.deferReply();
 
-    let projectName = interaction.options.getString("project_name");
+    const projectName = interaction.options.getString("project_name");
 
-    let project;
-    if (projectName) {
-      project = await Project.findOne({ name: projectName });
-      if (!project) {
-        return interaction.editReply(
-          `❌ Project **${projectName}** not found.`
-        );
-      }
-    } else {
-      project = await Project.findOne({ status: "running" });
-      if (!project) {
-        return interaction.editReply("❌ No running project found.");
-      }
+    // Fetch the project
+    const project = await Project.findOne({ name: projectName });
+    if (!project) {
+      return interaction.editReply(`❌ Project **${projectName}** not found.`);
     }
 
     // Fetch top 20 users for the project
@@ -53,45 +44,44 @@ module.exports = {
         );
         return {
           discordId: u.discordId,
-          username: u.twitterUsername,
-          points: entry.points,
+          username: u.twitterUsername || "Unknown",
+          points: entry.points || 0,
         };
       })
       .sort((a, b) => b.points - a.points)
       .slice(0, 20);
 
-    if (!projectUsers.length)
+    if (!projectUsers.length) {
       return interaction.editReply(
         "❌ No users have points in this project yet."
       );
+    }
 
+    // Format leaderboard
     const leaderboard = projectUsers
-      .map(
-        (u, i) =>
-          `\`${i + 1}\`. **${u.username || "Unknown"}** - \`${u.points} pts\``
-      )
+      .map((u, i) => `\`${i + 1}\`. **${u.username}** - \`${u.points} pts\``)
       .join("\n");
 
+    // Format project duration
+    const startTimestamp = `<t:${Math.floor(
+      project.startDate.getTime() / 1000
+    )}:f>`;
+    const endTimestamp = project.endDate
+      ? `<t:${Math.floor(project.endDate.getTime() / 1000)}:f>`
+      : "Ongoing";
+
+    // Embed
     const embed = new EmbedBuilder()
       .setTitle(`🏆 Project Leaderboard: ${project.name}`)
-      .setDescription(leaderboard)
       .setColor("Purple")
       .setThumbnail(interaction.guild.iconURL({ dynamic: true }))
-      .addFields(
-        {
-          name: "📅 Project Duration",
-          value: `${project.startDate.toDateString()} - ${
-            project.endDate ? project.endDate.toDateString() : "Ongoing"
-          }`,
-          inline: true,
-        },
-        {
-          name: "ℹ️ Status",
-          value: `${project.status}`,
-          inline: true,
-        }
+      .setDescription(
+        `**📅 Project Duration:** ${startTimestamp} - ${endTimestamp}\n` +
+          `**ℹ️ Status:** ${project.status}\n\n` +
+          `**Top Users:**\n${leaderboard}`
       )
-      .setFooter({ text: `Top 20 users` });
+      .setFooter({ text: "Top 20 users" })
+      .setTimestamp();
 
     return interaction.editReply({ embeds: [embed] });
   },

@@ -37,22 +37,31 @@ module.exports = {
     await interaction.deferReply({ ephemeral: true });
 
     /* ======================
-       ANTI-ABUSE CHECKS
+       CHECK IF ALREADY VERIFIED
     ====================== */
 
-    // 1 Discord -> 1 Twitter
     const alreadyLinkedDiscord = await TwitterLink.findOne({
       discordId,
       verified: true,
     });
 
     if (alreadyLinkedDiscord) {
-      return interaction.editReply(
-        "❌ Your Discord is already linked to a Twitter account."
-      );
+      const successEmbed = new EmbedBuilder()
+        .setColor("#00FF00")
+        .setTitle("✅ Already Linked")
+        .setDescription(
+          `Your Discord account is already linked to **@${alreadyLinkedDiscord.twitterUsername}**`
+        );
+
+      return interaction.editReply({
+        embeds: [successEmbed],
+      });
     }
 
-    // 1 Twitter -> 1 Discord
+    /* ======================
+       CHECK IF TWITTER TAKEN
+    ====================== */
+
     const alreadyLinkedTwitter = await TwitterLink.findOne({
       twitterUsername,
       verified: true,
@@ -64,28 +73,78 @@ module.exports = {
       );
     }
 
-    // Prevent spam re-requests
-    const existingPending = await TwitterLink.findOne({
+    /* ======================
+       CHECK FOR PENDING VERIFICATION
+    ====================== */
+
+    let existingPending = await TwitterLink.findOne({
       discordId,
       verified: false,
     });
 
+    // Clean up expired pending requests
+    if (existingPending && new Date() > existingPending.expiresAt) {
+      await TwitterLink.deleteOne({ _id: existingPending._id });
+      existingPending = null;
+    }
+
+    let link;
+    let verificationCode;
+
     if (existingPending) {
-      return interaction.editReply(
-        "⚠️ You already have a pending verification. Please verify or wait for it to expire."
+      // User has a pending verification - show it again
+      link = existingPending;
+      verificationCode = existingPending.verificationCode;
+
+      const embed = new EmbedBuilder()
+        .setColor("#FFA500")
+        .setTitle("⚠️ Pending Verification")
+        .setDescription(
+          `You already have a pending verification for **@${existingPending.twitterUsername}**`
+        )
+        .addFields(
+          {
+            name: "1️⃣ Add this code to your Twitter bio",
+            value: `\`\`\`${verificationCode}\`\`\``,
+          },
+          {
+            name: "2️⃣ Time remaining",
+            value: `⏱️ Expires <t:${Math.floor(
+              existingPending.expiresAt.getTime() / 1000
+            )}:R>`,
+          },
+          {
+            name: "3️⃣ Verify",
+            value: "After updating your bio, click **Verify** below.",
+          }
+        )
+        .setFooter({
+          text: "Your Twitter profile must be public",
+        });
+
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder()
+          .setCustomId(`verifyTwitter_${link._id}`)
+          .setLabel("Verify")
+          .setStyle(ButtonStyle.Success)
       );
+
+      return interaction.editReply({
+        embeds: [embed],
+        components: [row],
+      });
     }
 
     /* ======================
-       CREATE VERIFICATION
+       CREATE NEW VERIFICATION
     ====================== */
 
-    const verificationCode =
+    verificationCode =
       "TW-" + crypto.randomBytes(3).toString("hex").toUpperCase();
 
     const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
 
-    const link = await TwitterLink.create({
+    link = await TwitterLink.create({
       discordId,
       twitterUsername,
       verificationCode,

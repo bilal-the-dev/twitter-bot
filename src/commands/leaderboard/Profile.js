@@ -34,56 +34,60 @@ module.exports = {
     const topUsers = await UserProfile.find({})
       .sort({ totalPoints: -1 })
       .limit(100);
-
     let rank = topUsers.findIndex((u) => u.discordId === targetUser.id) + 1;
     const rankDisplay = rank > 0 ? `#${rank}` : "Not in Top 100";
 
-    // Get current running project
-    const currentProject = await Project.findOne({ status: "running" });
+    // Fetch all projects the user has points in
+    const projects = await Project.find({}).sort({ startDate: 1 });
 
-    let projectDescription = "No active project at the moment";
-    let projectPoints = 0;
+    let currentProjectsText = "";
+    let pastProjectsText = "";
 
-    if (currentProject) {
+    projects.forEach((project, index) => {
       const projectEntry = profile.projectPoints.find(
-        (p) => p.projectId.toString() === currentProject._id.toString()
+        (p) => p.projectId.toString() === project._id.toString()
       );
-      projectPoints = projectEntry ? projectEntry.points : 0;
-
-      const startDate = currentProject.startDate.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        year: "numeric",
-      });
-      const endDate = currentProject.endDate
-        ? currentProject.endDate.toLocaleDateString("en-US", {
-            month: "short",
-            day: "numeric",
-            year: "numeric",
-          })
+      const points = projectEntry ? projectEntry.points : 0;
+      const startTimestamp = `<t:${Math.floor(
+        project.startDate.getTime() / 1000
+      )}:d>`;
+      const endTimestamp = project.endDate
+        ? `<t:${Math.floor(project.endDate.getTime() / 1000)}:d>`
         : "Ongoing";
 
-      projectDescription =
-        `**${currentProject.name}**\n` +
-        `${startDate} → ${endDate}\n` +
-        `Your Points: \`${projectPoints}\``;
-    }
+      const line = `\`${index + 1}.\` **${
+        project.name
+      }** | ${startTimestamp} → ${endTimestamp} | Points: \`${points}\`\n`;
+
+      if (project.status === "running") {
+        currentProjectsText += line;
+      } else {
+        pastProjectsText += line;
+      }
+    });
+
+    if (!currentProjectsText)
+      currentProjectsText = "No active projects at the moment.";
+    if (!pastProjectsText) pastProjectsText = "No past projects yet.";
 
     // Build embed
     const embed = new EmbedBuilder()
       .setTitle(`📊 ${targetUser.username}'s Profile`)
+      .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
+      .setColor(0x5865f2)
       .setDescription(
         `**Global Rank:** \`${rankDisplay}\`\n` +
           `**Total Points:** \`${profile.totalPoints}\`\n` +
           `**Twitter:** \`${profile.twitterUsername || "Not Linked"}\``
       )
-      .setThumbnail(targetUser.displayAvatarURL({ dynamic: true }))
-      .setColor(0x5865f2)
-      .addFields({
-        name: "📝 Current Project",
-        value: projectDescription,
-        inline: false,
-      })
+      .addFields(
+        {
+          name: "📝 Current Projects",
+          value: currentProjectsText,
+          inline: false,
+        },
+        { name: "📚 Past Projects", value: pastProjectsText, inline: false }
+      )
       .setFooter({
         text: `Last updated: ${profile.lastUpdatedAt.toLocaleString("en-US", {
           month: "short",

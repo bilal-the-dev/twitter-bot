@@ -12,37 +12,54 @@ function randomDelay() {
 
 async function getAllRetweeters(tweetId) {
   const apiKey = process.env.TWITTER_API_KEY;
-  let cursor = "";
-  let hasNextPage = true;
+  const baseUrl = "https://api.tweetapi.com/tw-v2/tweet/retweets";
 
   const usernames = new Set();
 
+  let cursor = null;
+  let lastCursor = null;
+  let hasNextPage = true;
+
   while (hasNextPage) {
-    const response = await axios.get(
-      "https://api.twitterapi.io/twitter/tweet/retweeters",
-      {
-        headers: { "X-API-Key": apiKey },
-        params: { tweetId, cursor },
+    try {
+      const params = { tweetId };
+      if (cursor) params.cursor = cursor;
+
+      const response = await axios.get(baseUrl, {
+        headers: {
+          "X-API-Key": apiKey,
+        },
+        params,
+      });
+
+      const users = response.data?.data ?? [];
+      const nextCursor = response.data?.pagination?.nextCursor ?? null;
+      console.log(users.length);
+      // Add users
+      for (const user of users) {
+        if (user.username) usernames.add(user.username.toLowerCase());
       }
-    );
 
-    if (response.data.status !== "success") {
-      console.log(response.data);
+      // Pagination stop conditions
+      if (
+        users.length === 0 ||
+        !nextCursor ||
+        nextCursor === cursor ||
+        nextCursor === lastCursor
+      ) {
+        hasNextPage = false;
+      } else {
+        lastCursor = cursor;
+        cursor = nextCursor;
+        await sleep(randomDelay());
+      }
+    } catch (err) {
+      console.error(
+        `[TwitterAPI] Failed fetching retweeters for tweet ${tweetId}:`,
+        err.response?.data || err.message
+      );
+      break;
     }
-
-    const users = response.data.users || [];
-    for (const user of users) {
-      if (user.userName) usernames.add(user.userName.toLowerCase());
-    }
-
-    hasNextPage = response.data.has_next_page;
-    cursor = response.data.next_cursor || "";
-
-    // Safety break
-    if (!cursor) break;
-
-    // Wait 5-8 seconds before next request
-    await sleep(randomDelay());
   }
 
   return usernames;
@@ -50,38 +67,57 @@ async function getAllRetweeters(tweetId) {
 
 async function getAllReplies(tweetId) {
   const apiKey = process.env.TWITTER_API_KEY;
-  let cursor = "";
-  let hasNextPage = true;
+  const baseUrl = "https://api.tweetapi.com/tw-v2/tweet/details";
 
   const usernames = new Set();
 
+  let cursor = null;
+  let lastCursor = null;
+  let hasNextPage = true;
+
   while (hasNextPage) {
-    const response = await axios.get(
-      "https://api.twitterapi.io/twitter/tweet/replies",
-      {
-        headers: { "X-API-Key": apiKey },
-        params: { tweetId, cursor },
+    try {
+      const params = { tweetId };
+      if (cursor) params.cursor = cursor;
+
+      const response = await axios.get(baseUrl, {
+        headers: {
+          "X-API-Key": apiKey,
+        },
+        params,
+      });
+
+      const replies = response.data?.data?.replies || [];
+      const nextCursor = response.data?.pagination?.nextCursor;
+      console.log(replies.length);
+      // ✅ stop if no replies
+      if (replies.length === 0) {
+        break;
       }
-    );
 
-    console.log(response.data);
-    if (response.data.status !== "success") {
-      throw new Error(response);
+      // collect reply authors
+      for (const reply of replies) {
+        const username = reply?.author?.username;
+        if (username) {
+          usernames.add(username.toLowerCase());
+        }
+      }
+
+      // ✅ pagination safety guards
+      if (!nextCursor || nextCursor === lastCursor) {
+        hasNextPage = false;
+      } else {
+        lastCursor = cursor;
+        cursor = nextCursor;
+        await sleep(randomDelay());
+      }
+    } catch (err) {
+      console.error(
+        `[TwitterAPI] Failed fetching replies for tweet ${tweetId}:`,
+        err.response?.data || err.message
+      );
+      break;
     }
-
-    const replies = response.data.tweets || [];
-    for (const reply of replies) {
-      console.log(reply);
-      const username = reply?.author?.userName;
-      console.log(username);
-      if (username) usernames.add(username.toLowerCase());
-    }
-
-    hasNextPage = response.data.has_next_page;
-    cursor = response.data.next_cursor || "";
-    if (!cursor) break;
-
-    await sleep(randomDelay());
   }
 
   return usernames;
@@ -89,35 +125,59 @@ async function getAllReplies(tweetId) {
 
 async function getAllQuotes(tweetId) {
   const apiKey = process.env.TWITTER_API_KEY;
-  let cursor = "";
-  let hasNextPage = true;
+  const baseUrl = "https://api.tweetapi.com/tw-v2/tweet/quotes";
 
   const usernames = new Set();
 
+  let cursor = null;
+  let hasNextPage = true;
+  let lastCursor = null; // safety guard
+
   while (hasNextPage) {
-    const response = await axios.get(
-      "https://api.twitterapi.io/twitter/tweet/quotes",
-      {
-        headers: { "X-API-Key": apiKey },
-        params: { tweetId, includeReplies: true, cursor },
+    try {
+      const params = { tweetId };
+      if (cursor) params.cursor = cursor;
+
+      const response = await axios.get(baseUrl, {
+        headers: {
+          "X-API-Key": apiKey,
+        },
+        params,
+      });
+
+      const quotes = response.data?.data || [];
+      console.log(quotes.length);
+      const nextCursor = response.data?.pagination?.nextCursor;
+
+      // ✅ Stop if no results
+      if (quotes.length === 0) {
+        break;
       }
-    );
 
-    if (response.data.status !== "success") {
-      throw new Error(response.data.message || "Failed to fetch quotes");
+      // collect usernames
+      for (const quote of quotes) {
+        const username = quote?.author?.username;
+
+        if (username) {
+          usernames.add(username.toLowerCase());
+        }
+      }
+
+      // ✅ Stop if no cursor or cursor didn’t change
+      if (!nextCursor || nextCursor === lastCursor) {
+        hasNextPage = false;
+      } else {
+        lastCursor = cursor;
+        cursor = nextCursor;
+        await sleep(randomDelay());
+      }
+    } catch (err) {
+      console.error(
+        `[TwitterAPI] Failed fetching quotes for tweet ${tweetId}:`,
+        err.response?.data || err.message
+      );
+      break;
     }
-
-    const tweets = response.data.tweets || [];
-    for (const tweet of tweets) {
-      const username = tweet?.author?.userName;
-      if (username) usernames.add(username.toLowerCase());
-    }
-
-    hasNextPage = response.data.has_next_page;
-    cursor = response.data.next_cursor || "";
-    if (!cursor) break;
-
-    await sleep(randomDelay());
   }
 
   return usernames;

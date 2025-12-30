@@ -7,10 +7,6 @@ const tweetSchema = new mongoose.Schema(
       ref: "Project",
       required: true,
     },
-    tweetText: {
-      type: String,
-      required: true,
-    },
     tweetId: {
       type: String, // Extracted from tweet URL
       required: true,

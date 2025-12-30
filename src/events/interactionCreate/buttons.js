@@ -1,3 +1,4 @@
+const { EmbedBuilder } = require("discord.js");
 const Tweet = require("../../models/Tweet");
 const TweetParticipation = require("../../models/TweetParticipation");
 const TwitterLink = require("../../models/TwitterLink");
@@ -8,7 +9,6 @@ module.exports = async (client, interaction) => {
 
   // Split customId by "_"
   const [action, type, id] = interaction.customId.split("_");
-  console.log(action);
   switch (action) {
     case "verifyTwitter":
       await handleTwitterVerify(interaction, type);
@@ -28,7 +28,9 @@ async function handleTwitterVerify(interaction, recordId) {
 
   await interaction.deferReply({ ephemeral: true });
 
-  // Fetch pending record
+  /* ======================
+     FETCH PENDING RECORD
+  ====================== */
   const record = recordId
     ? await TwitterLink.findById(recordId)
     : await TwitterLink.findOne({ discordId, verified: false });
@@ -39,78 +41,139 @@ async function handleTwitterVerify(interaction, recordId) {
     );
   }
 
-  // Ensure same user
+  /* ======================
+     SECURITY CHECKS
+  ====================== */
+
   if (record.discordId !== discordId) {
     return interaction.editReply("❌ This verification is not for you.");
   }
 
-  // Expiry check
+  if (record.verified) {
+    const successEmbed = new EmbedBuilder()
+      .setColor("#00FF00")
+      .setTitle("✅ Already Verified")
+      .setDescription(
+        `Your Discord account is already linked to **@${record.twitterUsername}**`
+      )
+      .setFooter({ text: "To unlink, use /unlink command" });
+
+    return interaction.editReply({ embeds: [successEmbed] });
+  }
+
   if (record.expiresAt < new Date()) {
+    await TwitterLink.deleteOne({ _id: record._id });
     return interaction.editReply(
-      "⏱️ Verification expired. Please run `/link` again."
+      "⏱️ Verification expired. Please run `/link` again to get a new verification code."
     );
   }
 
-  // =========================
-  // Call Twitter API using Axios
-  // =========================
-  const apiKey = process.env.TWITTER_API_KEY;
-  const twitterUsername = record.twitterUsername;
+  /* ======================
+     CHECK IF TWITTER ALREADY LINKED
+  ====================== */
 
+  const alreadyLinkedTwitter = await TwitterLink.findOne({
+    twitterUsername: record.twitterUsername,
+    verified: true,
+    _id: { $ne: record._id },
+  });
+
+  if (alreadyLinkedTwitter) {
+    await TwitterLink.deleteOne({ _id: record._id });
+    return interaction.editReply(
+      "❌ This Twitter account is already linked to another Discord user."
+    );
+  }
+
+  /* ======================
+     CALL NEW TWITTER API
+  ====================== */
   try {
-    const response = await axios.get(
-      "https://api.twitterapi.io/twitter/user/info",
+    const params = new URLSearchParams({
+      username: record.twitterUsername, // no @
+    });
+
+    const response = await fetch(
+      `https://api.tweetapi.com/tw-v2/user/by-username?${params}`,
       {
+        method: "GET",
         headers: {
-          "X-API-Key": apiKey,
-        },
-        params: {
-          userName: twitterUsername,
+          "X-API-Key": process.env.TWITTER_API_KEY,
         },
       }
     );
 
-    const data = response.data;
-    console.log(data);
+    const data = await response.json();
+
     if (!data || !data.data) {
       return interaction.editReply(
-        "❌ Could not fetch Twitter user data. Please check the username."
+        "❌ Could not fetch Twitter user data. Please check if the username is correct and the profile is public."
       );
     }
 
-    const profileBio = data.data.description || "";
+    const profileBio = data.data.bio || "";
     console.log(profileBio);
-    // =========================
-    // Check if verification code exists in bio
-    // =========================
+    /* ======================
+       VERIFY CODE IN BIO
+    ====================== */
     if (!profileBio.includes(record.verificationCode)) {
-      return interaction.editReply(
-        "❌ Verification code not found in your Twitter bio. Please add it and try again."
-      );
+      const retryEmbed = new EmbedBuilder()
+        .setColor("#FF0000")
+        .setTitle("❌ Verification Failed")
+        .setDescription(
+          `The verification code was not found in **@${record.twitterUsername}**'s bio.`
+        )
+        .addFields(
+          {
+            name: "Required Code",
+            value: `\`\`\`${record.verificationCode}\`\`\``,
+          },
+          {
+            name: "What to do?",
+            value:
+              "1. Add the code to your Twitter bio\n2. Make sure your profile is public\n3. Click **Verify** again",
+          },
+          {
+            name: "Time Remaining",
+            value: `⏱️ Expires <t:${Math.floor(
+              record.expiresAt.getTime() / 1000
+            )}:R>`,
+          }
+        );
+
+      return interaction.editReply({
+        embeds: [retryEmbed],
+      });
     }
 
-    // =========================
-    // Success - mark verified
-    // =========================
+    /* ======================
+       SUCCESS - MARK VERIFIED
+    ====================== */
     record.verified = true;
     await record.save();
 
-    return interaction.editReply(
-      `✅ Twitter account **@${twitterUsername}** successfully verified!`
-    );
+    const successEmbed = new EmbedBuilder()
+      .setColor("#00FF00")
+      .setTitle("✅ Verification Successful!")
+      .setDescription(
+        `Your Discord account has been successfully linked to **@${record.twitterUsername}**`
+      )
+      .addFields({
+        name: "📝 Next Steps",
+        value:
+          "You can now remove the verification code from your Twitter bio.",
+      })
+      .setFooter({ text: "To unlink, use /unlink command" })
+      .setTimestamp();
+
+    return interaction.editReply({
+      embeds: [successEmbed],
+      components: [],
+    });
   } catch (err) {
     console.error("Twitter verify error:", err);
-
-    if (err.response && err.response.data) {
-      return interaction.editReply(
-        `❌ Twitter API error: ${err.response.status} ${
-          err.response.data.message || ""
-        }`
-      );
-    }
-
     return interaction.editReply(
-      "❌ Something went wrong while verifying your Twitter account. Try again later."
+      "❌ Something went wrong while verifying your Twitter account. Please try again later."
     );
   }
 }
@@ -125,8 +188,6 @@ async function handleDoneTweet(interaction, tweetRecordId) {
     discordId,
     verified: true,
   });
-
-  console.log(twitterLink);
 
   if (!twitterLink) {
     return interaction.editReply(
