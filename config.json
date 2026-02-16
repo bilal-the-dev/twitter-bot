@@ -1,6 +1,7 @@
- {
-  "LIKE": 1,    
-  "RETWEET": 2, 
-  "REPLY": 3,    
-  "QUOTE": 4
+{
+  "LIKE": 1,
+  "RETWEET": 2,
+  "REPLY": 4,
+  "EARLY_BONUS": 3,
+  "EARLY_WINDOW_MINUTES": 15
 }

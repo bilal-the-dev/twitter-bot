@@ -65,7 +65,7 @@ module.exports = {
       }
 
       const sentAt = new Date();
-      const expiresAt = new Date(sentAt.getTime() + 1 * 60 * 1000); // 1 minute expiry
+      const expiresAt = new Date(sentAt.getTime() + 24 * 60 * 60 * 1000);
 
       // Create tweet record
       const tweet = await Tweet.create({
@@ -82,7 +82,7 @@ module.exports = {
         `${url}\n\n` +
         `**Engage to collect your points**\n` +
         `**Expires in 24 hours**\n\n` +
-        `• **If you interact with this post 3 hours ago you will receive 3 extra points.**\n` +
+        `• **If you interact with this post 15 minutes ago you will receive 3 extra points.**\n` +
         `• **10 points will be given only if all tasks are completed!**`;
 
       // Create buttons matching the image style - all emoji only
@@ -100,13 +100,9 @@ module.exports = {
           .setStyle(ButtonStyle.Link)
           .setURL(url),
         new ButtonBuilder()
-          .setLabel("🔗")
-          .setStyle(ButtonStyle.Link)
-          .setURL(url),
-        new ButtonBuilder()
           .setCustomId(`doneTweet_${tweet._id}`)
           .setEmoji("📋")
-          .setStyle(ButtonStyle.Primary)
+          .setStyle(ButtonStyle.Primary),
       );
 
       const message = await interaction.reply({

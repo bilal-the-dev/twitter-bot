@@ -2,18 +2,12 @@ const Tweet = require("../models/Tweet");
 const TweetParticipation = require("../models/TweetParticipation");
 const UserProfile = require("../models/UserProfile");
 const pointsConfig = require("../../config.json");
-const {
-  getAllRetweeters,
-  getAllReplies,
-  getAllQuotes,
-} = require("./twitterApi");
-const { EmbedBuilder } = require("discord.js");
+const { getAllRetweeters, getAllReplies } = require("./twitterApi");
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Random delay between 5-8 seconds
 function randomDelay() {
   return 5000 + Math.floor(Math.random() * 3000);
 }
@@ -22,8 +16,6 @@ async function assignTweetPointsCron(client) {
   console.log("[CRON] Running tweet points assignment...");
 
   const now = new Date();
-  const channelId = process.env.TWEET_POINTS_CHANNEL_ID;
-  const channel = await client.channels.fetch(channelId);
 
   const tweets = await Tweet.find({
     expiresAt: { $lt: now },
@@ -35,7 +27,6 @@ async function assignTweetPointsCron(client) {
 
     let retweeters = new Set();
     let repliers = new Set();
-    let quoters = new Set();
 
     try {
       retweeters = await getAllRetweeters(tweet.tweetId);
@@ -50,13 +41,6 @@ async function assignTweetPointsCron(client) {
       console.error("Reply fetch failed:", e);
     }
 
-    try {
-      await sleep(randomDelay());
-      quoters = await getAllQuotes(tweet.tweetId);
-    } catch (e) {
-      console.error("Quote fetch failed:", e);
-    }
-
     const participants = await TweetParticipation.find({
       tweetId: tweet._id,
       pointsAssigned: false,
@@ -67,37 +51,51 @@ async function assignTweetPointsCron(client) {
 
     for (const participant of participants) {
       let earnedPoints = 0;
-      const actionLines = [];
 
-      // 👍 LIKE (always)
+      let liked = true; // participation implies like
+      let retweeted = false;
+      let replied = false;
+      let earlyBonus = false;
+
+      let didRealAction = false;
+
+      // 👍 LIKE
       earnedPoints += pointsConfig.LIKE;
-      actionLines.push(`👍 Like      +${pointsConfig.LIKE}`);
 
       // 🔁 RETWEET
       if (retweeters.has(participant.twitterUsername)) {
         earnedPoints += pointsConfig.RETWEET;
-        actionLines.push(`🔁 Retweet   +${pointsConfig.RETWEET}`);
+        retweeted = true;
+        didRealAction = true;
       }
 
       // 💬 REPLY
       if (repliers.has(participant.twitterUsername)) {
         earnedPoints += pointsConfig.REPLY;
-        actionLines.push(`💬 Reply     +${pointsConfig.REPLY}`);
+        replied = true;
+        didRealAction = true;
       }
 
-      // 🧵 QUOTE
-      if (quoters.has(participant.twitterUsername)) {
-        earnedPoints += pointsConfig.QUOTE;
-        actionLines.push(`🧵 Quote     +${pointsConfig.QUOTE}`);
+      // Skip if no real engagement
+      if (!didRealAction) continue;
+
+      // ⏱ Early Bonus
+      const participationTime = participant.createdAt;
+      const tweetSentTime = tweet.sentAt;
+      const diffMinutes = (participationTime - tweetSentTime) / (1000 * 60);
+
+      if (diffMinutes <= pointsConfig.EARLY_WINDOW_MINUTES) {
+        earnedPoints += pointsConfig.EARLY_BONUS;
+        earlyBonus = true;
       }
 
-      if (earnedPoints === 0) continue;
-
+      // Fetch Discord username
       const discordUsername = await fetchDiscordUsername(
         client,
-        participant.discordId
+        participant.discordId,
       );
 
+      // Update / Create UserProfile
       const userProfile = await UserProfile.findOneAndUpdate(
         { discordId: participant.discordId },
         {
@@ -111,11 +109,11 @@ async function assignTweetPointsCron(client) {
             lastUpdatedAt: new Date(),
           },
         },
-        { upsert: true, new: true }
+        { upsert: true, new: true },
       );
 
       const projectIndex = userProfile.projectPoints.findIndex(
-        (p) => p.projectId.toString() === tweet.projectId.toString()
+        (p) => p.projectId.toString() === tweet.projectId.toString(),
       );
 
       if (projectIndex === -1) {
@@ -129,31 +127,42 @@ async function assignTweetPointsCron(client) {
 
       await userProfile.save();
 
+      // Save action data in participation
+      participant.liked = liked;
+      participant.retweeted = retweeted;
+      participant.replied = replied;
+      participant.earlyBonus = earlyBonus;
+      participant.earnedPoints = earnedPoints;
       participant.pointsAssigned = true;
+
       await participant.save();
 
-      // ===== CLEAN PER-USER EMBED =====
-      const embed = new EmbedBuilder()
-        .setColor(0x1da1f2) // Twitter blue
-        .setTitle("🏆 Tweet Points Earned")
-        .setDescription(
-          `**Tweet**\n` +
-            `\`https://twitter.com/i/status/${tweet.tweetId}\`\n\n` +
-            `**User**\n` +
-            `\`${discordUsername || participant.twitterUsername}\`\n\n` +
-            `**Actions**\n` +
-            `\`\`\`\n${actionLines.join("\n")}\n\`\`\`\n` +
-            `**Total**\n` +
-            `\`${earnedPoints} points\``
-        )
-        .setTimestamp();
+      // 📩 DM USER RESULTS
+      try {
+        const user = await client.users.fetch(participant.discordId);
 
-      if (channel) {
-        await channel.send({ embeds: [embed] });
+        if (user) {
+          const resultMessage =
+            `📊 **Tweet Results**\n\n` +
+            `Tweet: https://twitter.com/i/status/${tweet.tweetId}\n\n` +
+            `👍 Liked: ${liked ? "✅" : "❌"}\n` +
+            `🔁 Retweeted: ${retweeted ? "✅" : "❌"}\n` +
+            `💬 Replied: ${replied ? "✅" : "❌"}\n` +
+            `⚡ Early Bonus: ${earlyBonus ? "✅" : "❌"}\n\n` +
+            `🏆 Total Points Earned: ${earnedPoints} points\n\n` +
+            `Keep engaging to earn more rewards! 🚀`;
+
+          await user.send(resultMessage);
+        }
+      } catch (dmError) {
+        console.log(
+          `[CRON] Could not DM user ${participant.discordId}:`,
+          dmError.message,
+        );
       }
     }
 
-    // Mark tweet done
+    // Mark tweet completed
     tweet.pointsAssigned = true;
     tweet.status = "completed";
     await tweet.save();
@@ -165,15 +174,14 @@ async function assignTweetPointsCron(client) {
 async function fetchDiscordUsername(client, discordId) {
   try {
     const user = await client.users.fetch(discordId);
-    // You can choose either format:
-    // return user.username;               // simple
-    return `${user.username}`; // classic tag
+    return `${user.username}`;
   } catch (err) {
     console.warn(
       `[CRON] Failed to fetch Discord user ${discordId}:`,
-      err.message
+      err.message,
     );
     return null;
   }
 }
+
 module.exports = assignTweetPointsCron;

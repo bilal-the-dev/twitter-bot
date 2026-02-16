@@ -8,7 +8,7 @@ module.exports = async (client) => {
   try {
     await mongoose.connect(process.env.MONGO_URI);
 
-    cron.schedule("*/3 * * * *", async () => {
+    cron.schedule("0 */12 * * *", async () => {
       try {
         await assignTweetPointsCron(client);
       } catch (err) {
@@ -28,7 +28,7 @@ module.exports = async (client) => {
         if (!projectsToEnd.length) return; // Nothing to do
 
         const logsChannel = client.channels.cache.get(
-          process.env.LOGS_CHANNEL_ID
+          process.env.LOGS_CHANNEL_ID,
         );
 
         for (const project of projectsToEnd) {
@@ -42,12 +42,12 @@ module.exports = async (client) => {
               `Project **${project.name}** has ended automatically as the end date has been reached.\n\n` +
                 `📌 **Name:** ${project.name}\n` +
                 `🗓 **Start Date:** <t:${Math.floor(
-                  project.startDate.getTime() / 1000
+                  project.startDate.getTime() / 1000,
                 )}:f>\n` +
                 `🛑 **End Date:** <t:${Math.floor(
-                  project.endDate.getTime() / 1000
+                  project.endDate.getTime() / 1000,
                 )}:f>\n` +
-                `⚡ **Status:** ${project.status}`
+                `⚡ **Status:** ${project.status}`,
             )
             .setTimestamp()
             .setFooter({ text: "Project Management System" });

@@ -37,7 +37,7 @@ async function handleTwitterVerify(interaction, recordId) {
 
   if (!record) {
     return interaction.editReply(
-      "❌ No pending Twitter verification found. Please run `/link` again."
+      "❌ No pending Twitter verification found. Please run `/link` again.",
     );
   }
 
@@ -54,7 +54,7 @@ async function handleTwitterVerify(interaction, recordId) {
       .setColor("#00FF00")
       .setTitle("✅ Already Verified")
       .setDescription(
-        `Your Discord account is already linked to **@${record.twitterUsername}**`
+        `Your Discord account is already linked to **@${record.twitterUsername}**`,
       )
       .setFooter({ text: "To unlink, use /unlink command" });
 
@@ -64,7 +64,7 @@ async function handleTwitterVerify(interaction, recordId) {
   if (record.expiresAt < new Date()) {
     await TwitterLink.deleteOne({ _id: record._id });
     return interaction.editReply(
-      "⏱️ Verification expired. Please run `/link` again to get a new verification code."
+      "⏱️ Verification expired. Please run `/link` again to get a new verification code.",
     );
   }
 
@@ -81,7 +81,7 @@ async function handleTwitterVerify(interaction, recordId) {
   if (alreadyLinkedTwitter) {
     await TwitterLink.deleteOne({ _id: record._id });
     return interaction.editReply(
-      "❌ This Twitter account is already linked to another Discord user."
+      "❌ This Twitter account is already linked to another Discord user.",
     );
   }
 
@@ -100,14 +100,14 @@ async function handleTwitterVerify(interaction, recordId) {
         headers: {
           "X-API-Key": process.env.TWITTER_API_KEY,
         },
-      }
+      },
     );
 
     const data = await response.json();
 
     if (!data || !data.data) {
       return interaction.editReply(
-        "❌ Could not fetch Twitter user data. Please check if the username is correct and the profile is public."
+        "❌ Could not fetch Twitter user data. Please check if the username is correct and the profile is public.",
       );
     }
 
@@ -121,7 +121,7 @@ async function handleTwitterVerify(interaction, recordId) {
         .setColor("#FF0000")
         .setTitle("❌ Verification Failed")
         .setDescription(
-          `The verification code was not found in **@${record.twitterUsername}**'s bio.`
+          `The verification code was not found in **@${record.twitterUsername}**'s bio.`,
         )
         .addFields(
           {
@@ -136,9 +136,9 @@ async function handleTwitterVerify(interaction, recordId) {
           {
             name: "Time Remaining",
             value: `⏱️ Expires <t:${Math.floor(
-              record.expiresAt.getTime() / 1000
+              record.expiresAt.getTime() / 1000,
             )}:R>`,
-          }
+          },
         );
 
       return interaction.editReply({
@@ -156,7 +156,7 @@ async function handleTwitterVerify(interaction, recordId) {
       .setColor("#00FF00")
       .setTitle("✅ Verification Successful!")
       .setDescription(
-        `Your Discord account has been successfully linked to **@${record.twitterUsername}**`
+        `Your Discord account has been successfully linked to **@${record.twitterUsername}**`,
       )
       .addFields({
         name: "📝 Next Steps",
@@ -173,7 +173,7 @@ async function handleTwitterVerify(interaction, recordId) {
   } catch (err) {
     console.error("Twitter verify error:", err);
     return interaction.editReply(
-      "❌ Something went wrong while verifying your Twitter account. Please try again later."
+      "❌ Something went wrong while verifying your Twitter account. Please try again later.",
     );
   }
 }
@@ -183,7 +183,7 @@ async function handleDoneTweet(interaction, tweetRecordId) {
 
   await interaction.deferReply({ ephemeral: true });
 
-  // 1. Check Twitter link
+  // 1️⃣ Check Twitter link
   const twitterLink = await TwitterLink.findOne({
     discordId,
     verified: true,
@@ -191,43 +191,87 @@ async function handleDoneTweet(interaction, tweetRecordId) {
 
   if (!twitterLink) {
     return interaction.editReply(
-      "❌ You must link and verify your Twitter account first using `/link`."
+      "❌ You must link and verify your Twitter account first using `/link`.",
     );
   }
 
-  // 2. Fetch tweet
+  // 2️⃣ Fetch tweet
   const tweet = await Tweet.findById(tweetRecordId);
 
   if (!tweet) {
     return interaction.editReply("❌ Tweet not found.");
   }
 
-  // 3. Expiry check
-  if (tweet.expiresAt < new Date()) {
+  // 3️⃣ Check if user already participated
+  let participation = await TweetParticipation.findOne({
+    tweetId: tweet._id,
+    discordId,
+  });
+
+  // =============================
+  // 🟢 FIRST CLICK (NOT PARTICIPATED)
+  // =============================
+  if (!participation) {
+    // Expiry check
+    if (tweet.expiresAt < new Date()) {
+      return interaction.editReply(
+        "⏱️ This tweet has expired. Engagement window is closed.",
+      );
+    }
+
+    try {
+      await TweetParticipation.create({
+        tweetId: tweet._id,
+        projectId: tweet.projectId,
+        discordId,
+        twitterUsername: twitterLink.twitterUsername,
+      });
+    } catch (err) {
+      if (err.code === 11000) {
+        return interaction.editReply(
+          "⚠️ You have already marked this tweet as done.",
+        );
+      }
+      throw err;
+    }
+
     return interaction.editReply(
-      "⏱️ This tweet has expired. Engagement window is closed."
+      "✅ Participation recorded!\n\n" +
+        "Points will be verified and assigned after engagement window closes.",
     );
   }
 
-  // 4. Save participation
-  try {
-    await TweetParticipation.create({
-      tweetId: tweet._id,
-      projectId: tweet.projectId,
-      discordId,
-      twitterUsername: twitterLink.twitterUsername,
-    });
-  } catch (err) {
-    // Duplicate protection
-    if (err.code === 11000) {
-      return interaction.editReply(
-        "⚠️ You have already marked this tweet as done."
-      );
-    }
-    throw err;
+  // =============================
+  // 🟡 SECOND CLICK (WINDOW STILL OPEN)
+  // =============================
+  if (!tweet.pointsAssigned) {
+    return interaction.editReply(
+      "⏳ You have already participated.\n\n" +
+        "Results will be available once the engagement window closes.",
+    );
   }
 
-  return interaction.editReply(
-    "✅ Done! Your engagement has been recorded.\nPoints will be assigned after verification."
+  // =============================
+  // 🏆 AFTER CRON COMPLETED (SHOW RESULTS)
+  // =============================
+
+  const resultsLines = [];
+
+  resultsLines.push("📊 **Your Results:**\n");
+
+  resultsLines.push(`👍 Liked: ${participation.liked ? "✅" : "❌"}`);
+  resultsLines.push(`🔁 Retweeted: ${participation.retweeted ? "✅" : "❌"}`);
+  resultsLines.push(`💬 Replied: ${participation.replied ? "✅" : "❌"}`);
+  resultsLines.push(
+    `⚡ Early Bonus: ${participation.earlyBonus ? "✅" : "❌"}`,
   );
+
+  resultsLines.push("\n🏆 **Total Points Earned:**");
+  resultsLines.push(`✨ ${participation.earnedPoints} points`);
+
+  if (!participation.eligible) {
+    resultsLines.push("\n⚠️ You were marked ineligible for this tweet.");
+  }
+
+  return interaction.editReply(resultsLines.join("\n"));
 }

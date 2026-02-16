@@ -43,8 +43,33 @@ const tweetParticipationSchema = new mongoose.Schema(
       type: Boolean,
       default: false,
     },
+
+    liked: {
+      type: Boolean,
+      default: false,
+    },
+
+    retweeted: {
+      type: Boolean,
+      default: false,
+    },
+
+    replied: {
+      type: Boolean,
+      default: false,
+    },
+
+    earlyBonus: {
+      type: Boolean,
+      default: false,
+    },
+
+    earnedPoints: {
+      type: Number,
+      default: 0,
+    },
   },
-  { timestamps: true }
+  { timestamps: true },
 );
 
 // Prevent duplicates (VERY IMPORTANT)
