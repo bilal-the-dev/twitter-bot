@@ -83,7 +83,7 @@ module.exports = {
         `**Engage to collect your points**\n` +
         `**Expires in 24 hours**\n\n` +
         `• **If you interact with this post 15 minutes ago you will receive 3 extra points.**\n` +
-        `• **10 points will be given only if all tasks are completed!**`;
+        `• **10 points will be given if all tasks are completed!**`;
 
       // Create buttons matching the image style - all emoji only
       const row = new ActionRowBuilder().addComponents(

@@ -142,14 +142,19 @@ async function assignTweetPointsCron(client) {
         const user = await client.users.fetch(participant.discordId);
 
         if (user) {
+          const likePoints = pointsConfig.LIKE;
+          const retweetPoints = retweeted ? pointsConfig.RETWEET : 0;
+          const replyPoints = replied ? pointsConfig.REPLY : 0;
+          const earlyPoints = earlyBonus ? pointsConfig.EARLY_BONUS : 0;
+
           const resultMessage =
             `📊 **Tweet Results**\n\n` +
             `Tweet: https://twitter.com/i/status/${tweet.tweetId}\n\n` +
-            `👍 Liked: ${liked ? "✅" : "❌"}\n` +
-            `🔁 Retweeted: ${retweeted ? "✅" : "❌"}\n` +
-            `💬 Replied: ${replied ? "✅" : "❌"}\n` +
-            `⚡ Early Bonus: ${earlyBonus ? "✅" : "❌"}\n\n` +
-            `🏆 Total Points Earned: ${earnedPoints} points\n\n` +
+            `👍 Like: +${likePoints} pts\n` +
+            `🔁 Retweet: +${retweetPoints} pts\n` +
+            `💬 Reply: +${replyPoints} pts\n` +
+            `⚡ Early Bonus: +${earlyPoints} pts\n\n` +
+            `🏆 **Total Earned: ${earnedPoints} points**\n\n` +
             `Keep engaging to earn more rewards! 🚀`;
 
           await user.send(resultMessage);
